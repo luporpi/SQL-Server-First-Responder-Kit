@@ -114,6 +114,9 @@ DECLARE @collation NVARCHAR(256);
 DECLARE @NumDatabases INT;
 DECLARE @LineFeed NVARCHAR(5);
 DECLARE @DaysUptimeInsertValue NVARCHAR(256);
+-- luporpi --BEGIN--
+DECLARE @StringToExecute NVARCHAR(MAX);
+-- luporpi --END--
 
 SET @LineFeed = CHAR(13) + CHAR(10);
 SELECT @SQLServerProductVersion = CAST(SERVERPROPERTY('ProductVersion') AS NVARCHAR(128));
@@ -2060,10 +2063,17 @@ IF @TableName IS NOT NULL
 BEGIN
     RAISERROR(N'@TableName specified, giving detail only on that table.', 0,1) WITH NOWAIT;
 
+-- luporpi --BEGIN--
+	DECLARE @OutputTableNameNEW NVARCHAR(256);
+-- luporpi --END--
+
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
  
-   	
+-- luporpi --BEGIN--
+    IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+    BEGIN
+-- luporpi --END--
 	   WITH table_mode_cte AS (
         SELECT 
             s.db_schema_object_indexid, 
@@ -2135,10 +2145,97 @@ BEGIN
     FROM table_mode_cte
     ORDER BY display_order ASC, key_column_names ASC
     OPTION    ( RECOMPILE );                        
+-- luporpi --BEGIN--
+    END
+    ELSE
+    BEGIN
+        SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__0');
+        SET @StringToExecute = 
+		    CAST('' as NVARCHAR(MAX)) +
+			N'
+            WITH table_mode_cte AS (
+            SELECT 
+                s.db_schema_object_indexid, 
+                s.key_column_names,
+                s.index_definition, 
+                ISNULL(s.secret_columns,N'''') AS secret_columns,
+                s.fill_factor,
+                s.index_usage_summary, 
+                sz.index_op_stats,
+                ISNULL(sz.index_size_summary,'''') /*disabled NCs will be null*/ AS index_size_summary,
+                partition_compression_detail ,
+                ISNULL(sz.index_lock_wait_summary,'''') AS index_lock_wait_summary,
+                s.is_referenced_by_foreign_key,
+                (SELECT COUNT(*)
+                    FROM #ForeignKeys fk WHERE fk.parent_object_id=s.object_id
+                    AND PATINDEX (fk.parent_fk_columns, s.key_column_names)=1) AS FKs_covered_by_index,
+                s.last_user_seek,
+                s.last_user_scan,
+                s.last_user_lookup,
+                s.last_user_update,
+                s.create_date,
+                s.modify_date,
+                sz.page_latch_wait_count,
+    			CONVERT(VARCHAR(10), (sz.page_latch_wait_in_ms / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_latch_wait_in_ms / 1000), 0), 108) AS page_latch_wait_time,
+    			sz.page_io_latch_wait_count,
+    			CONVERT(VARCHAR(10), (sz.page_io_latch_wait_in_ms / 1000) / 86400) + '':'' + CONVERT(VARCHAR(20), DATEADD(s, (sz.page_io_latch_wait_in_ms / 1000), 0), 108) AS page_io_latch_wait_time,
+                ct.create_tsql,
+                1 AS display_order
+            FROM #IndexSanity s
+            LEFT JOIN #IndexSanitySize sz ON 
+                s.index_sanity_id=sz.index_sanity_id
+            LEFT JOIN #IndexCreateTsql ct ON 
+                s.index_sanity_id=ct.index_sanity_id
+            LEFT JOIN #PartitionCompressionInfo pci ON 
+                pci.index_sanity_id = s.index_sanity_id
+            WHERE s.[object_id]=' + CAST(@ObjectID AS NVARCHAR(30))  + '
+            UNION ALL
+            SELECT     ''Database ' + QUOTENAME(@DatabaseName) + N' as of ' + CONVERT(NVARCHAR(16),GETDATE(),121) +             
+                    N' (' + @ScriptVersionName + N')'' ,   
+                    ''SQL Server First Responder Kit'' ,   
+                    ''http://FirstResponderKit.org'' ,
+                    ''From Your Community Volunteers'',
+                    NULL,'''+@DaysUptimeInsertValue+''',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+                    0 AS display_order
+            )
+            SELECT 
+                    db_schema_object_indexid AS [Details: db_schema.table.index(indexid)], 
+                    index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+                    secret_columns AS [Secret Columns],
+                    fill_factor AS [Fillfactor],
+                    index_usage_summary AS [Usage Stats], 
+                    index_op_stats AS [Op Stats],
+                    index_size_summary AS [Size],
+                    partition_compression_detail AS [Compression Type],
+                    index_lock_wait_summary AS [Lock Waits],
+                    is_referenced_by_foreign_key AS [Referenced by FK?],
+                    FKs_covered_by_index AS [FK Covered by Index?],
+                    last_user_seek AS [Last User Seek],
+                    last_user_scan AS [Last User Scan],
+                    last_user_lookup AS [Last User Lookup],
+                    last_user_update AS [Last User Write],
+                    create_date AS [Created],
+                    modify_date AS [Last Modified],
+                    page_latch_wait_count AS [Page Latch Wait Count],
+        			page_latch_wait_time as [Page Latch Wait Time (D:H:M:S)],
+        			page_io_latch_wait_count AS [Page IO Latch Wait Count],								
+        			page_io_latch_wait_time as [Page IO Latch Wait Time (D:H:M:S)],
+                    create_tsql AS [Create TSQL]
+            INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+            FROM table_mode_cte
+            ORDER BY display_order ASC, key_column_names ASC
+            OPTION    ( RECOMPILE );   
+        ';
+        EXEC sp_executesql @StringToExecute;
+    END;
+    -- luporpi --END--
 
     IF (SELECT TOP 1 [object_id] FROM    #MissingIndexes mi) IS NOT NULL
-    BEGIN;
-
+    BEGIN
+-- luporpi --BEGIN--
+        IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+        BEGIN
+-- luporpi --END--
 	WITH create_date AS (
 						SELECT i.database_id,
 							   i.schema_name,
@@ -2171,8 +2268,70 @@ BEGIN
         OPTION    ( RECOMPILE );
     END;       
     ELSE     
+-- luporpi --BEGIN--
+        BEGIN
+            SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
+            SET @StringToExecute = N'
+                WITH create_date AS (
+                                SELECT i.database_id,
+                                    i.schema_name,
+                                    i.[object_id], 
+                                    ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+                                FROM #IndexSanity AS i
+                                GROUP BY i.database_id, i.schema_name, i.object_id
+                                )
+                SELECT  N''Missing index.'' AS Finding ,
+                        N''http://BrentOzar.com/go/Indexaphobia'' AS URL ,
+                        mi.[statement] + 
+                        '' Est. Benefit: ''
+                            + CASE WHEN magic_benefit_number >= 922337203685477 THEN ''>= 922,337,203,685,477''
+                            ELSE REPLACE(CONVERT(NVARCHAR(256),CAST(CAST(
+                                                (magic_benefit_number / CASE WHEN cd.create_days < ' + CAST(@DaysUptime AS nvarchar(30)) + ' THEN cd.create_days ELSE ' +CAST(@DaysUptime AS nvarchar(30))+ ' END)
+                                                AS BIGINT) AS MONEY), 1), ''.00'', '''')
+                            END AS [Estimated Benefit],
+                        missing_index_details AS [Missing Index Request] ,
+                        index_estimated_impact AS [Estimated Impact],
+                        create_tsql AS [Create TSQL]
+                INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+                FROM    #MissingIndexes mi
+                LEFT JOIN create_date AS cd
+                ON mi.[object_id] =  cd.object_id 
+                AND mi.database_id = cd.database_id
+                AND mi.schema_name = cd.schema_name
+                WHERE   mi.[object_id] = '+CAST(@DaysUptime AS nvarchar(30))+'
+                        /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
+                AND (magic_benefit_number / CASE WHEN cd.create_days < ' +CAST(@DaysUptime AS nvarchar(30))+ ' THEN cd.create_days ELSE ' +CAST(@DaysUptime AS nvarchar(30))+ ' END) >= 100000
+                ORDER BY is_low, magic_benefit_number DESC
+                OPTION    ( RECOMPILE );
+            ';
+            EXEC sp_executesql @StringToExecute;
+		    END;
+    END;
+-- luporpi --END--
+    ELSE
+-- luporpi --BEGIN--
+    BEGIN
+    		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+        BEGIN
+-- luporpi --END--
     SELECT 'No missing indexes.' AS finding;
+-- luporpi --BEGIN--
+        END;
+		BEGIN
+			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
+			SET @StringToExecute = N'
+				SELECT ''No missing indexes.'' AS finding
+				INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + ';
+			';
+			EXEC sp_executesql @StringToExecute;
+		END;
+	END;
+-- luporpi --END--
 
+-- luporpi --BEGIN--
+	IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+	BEGIN
+-- luporpi --END--
     SELECT   
         column_name AS [Column Name],
         (SELECT COUNT(*)  
@@ -2206,9 +2365,57 @@ BEGIN
         collation_name AS [Collation]
     FROM #IndexColumns AS c
     WHERE index_id IN (0,1);
+-- luporpi --BEGIN--
+    END;
+    ELSE
+    BEGIN
+		SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__2');
+		SET @StringToExecute = N'
+		SELECT     
+			column_name AS [Column Name],
+			(SELECT COUNT(*)  
+				FROM #IndexColumns c2 
+				WHERE c2.column_name=c.column_name
+				AND c2.key_ordinal IS NOT NULL)
+			+ CASE WHEN c.index_id = 1 AND c.key_ordinal IS NOT NULL THEN
+				-1+ (SELECT COUNT(DISTINCT index_id)
+				FROM #IndexColumns c3
+				WHERE c3.index_id NOT IN (0,1))
+				ELSE 0 END
+					AS [Found In],
+			system_type_name + 
+				CASE max_length WHEN -1 THEN N'' (max)'' ELSE
+					CASE  
+						WHEN system_type_name IN (N''char'',N''varchar'',N''binary'',N''varbinary'') THEN N'' ('' + CAST(max_length AS NVARCHAR(20)) + N'')'' 
+						WHEN system_type_name IN (N''nchar'',N''nvarchar'') THEN N'' ('' + CAST(max_length/2 AS NVARCHAR(20)) + N'')'' 
+						ELSE '''' 
+					END
+				END
+				AS [Type],
+			CASE is_computed WHEN 1 THEN ''yes'' ELSE '''' END AS [Computed?],
+			max_length AS [Length (max bytes)],
+			[precision] AS [Prec],
+			[scale] AS [Scale],
+			CASE is_nullable WHEN 1 THEN ''yes'' ELSE '''' END AS [Nullable?],
+			CASE is_identity WHEN 1 THEN ''yes'' ELSE '''' END AS [Identity?],
+			CASE is_replicated WHEN 1 THEN ''yes'' ELSE '''' END AS [Replicated?],
+			CASE is_sparse WHEN 1 THEN ''yes'' ELSE '''' END AS [Sparse?],
+			CASE is_filestream WHEN 1 THEN ''yes'' ELSE '''' END AS [Filestream?],
+			collation_name AS [Collation]
+		INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+		FROM #IndexColumns AS c
+		WHERE index_id IN (0,1);
+		';
+		EXEC sp_executesql @StringToExecute;
+	END;
+-- luporpi --END--    
 
     IF (SELECT TOP 1 parent_object_id FROM #ForeignKeys) IS NOT NULL
     BEGIN
+-- luporpi --BEGIN--
+   		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+		BEGIN
+-- luporpi --END--
         SELECT [database_name] + N':' + parent_object_name + N': ' + foreign_key_name AS [Foreign Key],
             parent_fk_columns AS [Foreign Key Columns],
             referenced_object_name AS [Referenced Table],
@@ -2223,11 +2430,52 @@ BEGIN
         OPTION    ( RECOMPILE );
     END;
     ELSE
-    SELECT 'No foreign keys.' AS finding;
+-- luporpi --BEGIN--
+        BEGIN
+			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__3');
+			SET @StringToExecute = N'
+			SELECT [database_name] + N'':'' + parent_object_name + N'': '' + foreign_key_name AS [Foreign Key],
+				parent_fk_columns AS [Foreign Key Columns],
+				referenced_object_name AS [Referenced Table],
+				referenced_fk_columns AS [Referenced Table Columns],
+				is_disabled AS [Is Disabled?],
+				is_not_trusted AS [Not Trusted?],
+				is_not_for_replication [Not for Replication?],
+				[update_referential_action_desc] AS [Cascading Updates?],
+				[delete_referential_action_desc] AS [Cascading Deletes?]
+			INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+			FROM #ForeignKeys
+			ORDER BY [Foreign Key]
+			OPTION    ( RECOMPILE );
+			';
+			EXEC sp_executesql @StringToExecute;
+		END;
+    END;
+    ELSE
+	BEGIN
+		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL
+		BEGIN
+			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__3');
+			SET @StringToExecute = N'
+				SELECT ''No foreign keys.'' AS finding
+				INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + ';
+			';
+			EXEC sp_executesql @StringToExecute;
+		END;
+		ELSE
+-- luporpi --END--
+		SELECT 'No foreign keys.' AS finding;
+-- luporpi --BEGIN--
+	END;
+-- luporpi --END--
 
     /* Show histograms for all stats on this table. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/1900 */
     IF EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_stats_histogram')
     BEGIN
+-- luporpi --BEGIN--
+   		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+		BEGIN
+-- luporpi --END--
         SET @dsql=N'SELECT s.name AS [Stat Name], c.name AS [Leading Column Name], hist.step_number AS [Step Number], 
                         hist.range_high_key AS [Range High Key], hist.range_rows AS [Range Rows], 
                         hist.equal_rows AS [Equal Rows], hist.distinct_range_rows AS [Distinct Range Rows], hist.average_range_rows AS [Average Range Rows],
@@ -2241,6 +2489,26 @@ BEGIN
                     WHERE s.object_id = @ObjectID
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
+        END;
+        ELSE
+        BEGIN
+			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__4');
+			SET @StringToExecute = N'
+                    SELECT s.name AS [Stat Name], c.name AS [Leading Column Name], hist.step_number AS [Step Number], 
+                        hist.range_high_key AS [Range High Key], hist.range_rows AS [Range Rows], 
+                        hist.equal_rows AS [Equal Rows], hist.distinct_range_rows AS [Distinct Range Rows], hist.average_range_rows AS [Average Range Rows],
+                        s.auto_created AS [Auto-Created], s.user_created AS [User-Created],
+                        props.last_updated AS [Last Updated], s.stats_id AS [StatsID]
+                    INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+                    FROM sys.stats AS s
+                    INNER JOIN sys.stats_columns sc ON s.object_id = sc.object_id AND s.stats_id = sc.stats_id AND sc.stats_column_id = 1
+                    INNER JOIN sys.columns c ON sc.object_id = c.object_id AND sc.column_id = c.column_id
+                    CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) AS props  
+                    CROSS APPLY sys.dm_db_stats_histogram(s.[object_id], s.stats_id) AS hist
+                    WHERE s.object_id = @ObjectID
+                    ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
+            EXEC sp_executesql @StringToExecute, N'@ObjectID INT', @ObjectID;
+        END;
     END
 
 
@@ -4217,6 +4485,10 @@ BEGIN;
         BEGIN
 			IF(@OutputType <> 'NONE')
 			BEGIN
+-- luporpi --BEGIN--
+    			IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+    			BEGIN
+-- luporpi --END--
 				SELECT Priority, ISNULL(br.findings_group,N'') + 
 						CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
 						+ br.finding AS [Finding], 
@@ -4239,12 +4511,51 @@ BEGIN;
 				                      50, 65, 68, 73, 99 )
 				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 				OPTION (RECOMPILE);
+-- luporpi --BEGIN--
+                END;
+                ELSE
+                BEGIN    
+					RAISERROR(N'@Mode=0, to db', 0,1) WITH NOWAIT;
+
+    				SET @OutputTableNameNEW = @OutputTableName
+    				SET @StringToExecute = N'
+    			SELECT Priority, ISNULL(br.findings_group,N'''') + 
+						CASE WHEN ISNULL(br.finding,N'''') <> N'''' THEN N'': '' ELSE N'''' END
+						+ br.finding AS [Finding], 
+					br.[database_name] AS [Database Name],
+					br.details AS [Details: schema.table.index(indexid)], 
+					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+					ISNULL(br.secret_columns,'''') AS [Secret Columns],          
+					br.index_usage_summary AS [Usage], 
+					br.index_size_summary AS [Size],
+					COALESCE(br.more_info,sn.more_info,'''') AS [More Info],
+					br.URL, 
+					COALESCE(br.create_tsql,ts.create_tsql,'''') AS [Create TSQL]
+				INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+				FROM #BlitzIndexResults br
+				LEFT JOIN #IndexSanity sn ON 
+					br.index_sanity_id=sn.index_sanity_id
+				LEFT JOIN #IndexCreateTsql ts ON 
+					br.index_sanity_id=ts.index_sanity_id
+				WHERE br.check_id IN ( 0, 1, 2, 11, 12, 13, 
+				                      22, 34, 43, 47, 48, 
+				                      50, 65, 68, 73, 99 )
+				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+				OPTION (RECOMPILE);
+    				';
+    				EXEC sp_executesql @StringToExecute;
+    			END;
+-- luporpi --END--
 			 END;
 
         END;
         ELSE IF (@Mode = 4)
 			IF(@OutputType <> 'NONE')
 		 	BEGIN	
+-- luporpi --BEGIN--
+    			IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+    			BEGIN
+-- luporpi --END--
 				SELECT Priority, ISNULL(br.findings_group,N'') + 
 						CASE WHEN ISNULL(br.finding,N'') <> N'' THEN N': ' ELSE N'' END
 						+ br.finding AS [Finding], 
@@ -4264,7 +4575,37 @@ BEGIN;
 					br.index_sanity_id=ts.index_sanity_id
 				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 				OPTION (RECOMPILE);
-			 END;
+-- luporpi --BEGIN--
+                END;
+                ELSE
+                BEGIN
+    				SET @OutputTableNameNEW = @OutputTableName
+    				SET @StringToExecute = N'
+    				SELECT Priority, ISNULL(br.findings_group,N'''') + 
+    						CASE WHEN ISNULL(br.finding,N'''') <> N'''' THEN N'': '' ELSE N'''' END
+    						+ br.finding AS [Finding], 
+    					br.[database_name] AS [Database Name],
+    					br.details AS [Details: schema.table.index(indexid)], 
+    					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+    					ISNULL(br.secret_columns,'''') AS [Secret Columns],          
+    					br.index_usage_summary AS [Usage], 
+    					br.index_size_summary AS [Size],
+    					COALESCE(br.more_info,sn.more_info,'''') AS [More Info],
+    					br.URL, 
+    					COALESCE(br.create_tsql,ts.create_tsql,'''') AS [Create TSQL]
+    				INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+    				FROM #BlitzIndexResults br
+    				LEFT JOIN #IndexSanity sn ON 
+    					br.index_sanity_id=sn.index_sanity_id
+    				LEFT JOIN #IndexCreateTsql ts ON 
+    					br.index_sanity_id=ts.index_sanity_id
+    				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
+    				OPTION (RECOMPILE);
+    				';
+    				EXEC sp_executesql @StringToExecute;
+    			END;
+-- luporpi --END--
+            END;
 
     END; /* End @Mode=0 or 4 (diagnose)*/
     ELSE IF (@Mode=1) /*Summarize*/
@@ -4274,6 +4615,10 @@ BEGIN;
 	 	BEGIN
 			RAISERROR(N'@Mode=1, we are summarizing.', 0,1) WITH NOWAIT;
 
+-- luporpi --BEGIN--
+    		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+            BEGIN
+-- luporpi --END--
 			SELECT DB_NAME(i.database_id) AS [Database Name],
 				CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
 				CAST(CAST(SUM(sz.total_reserved_MB)/
@@ -4331,8 +4676,76 @@ BEGIN;
 					NULL,NULL,0 AS display_order
 			ORDER BY [Display Order] ASC
 			OPTION (RECOMPILE);
-	  	END;
-           
+-- luporpi --BEGIN--
+            END;
+            ELSE
+            BEGIN
+                SET @OutputTableNameNEW = @OutputTableName
+                SET @StringToExecute = N'
+                    SELECT DB_NAME(i.database_id) AS [Database Name],
+                        CAST((COUNT(*)) AS NVARCHAR(256)) AS [Number Objects],
+                        CAST(CAST(SUM(sz.total_reserved_MB)/
+                            1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [All GB],
+                        CAST(CAST(SUM(sz.total_reserved_LOB_MB)/
+                            1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [LOB GB],
+                        CAST(CAST(SUM(sz.total_reserved_row_overflow_MB)/
+                            1024. AS NUMERIC(29,1)) AS NVARCHAR(500)) AS [Row Overflow GB],
+                        CAST(SUM(CASE WHEN index_id=1 THEN 1 ELSE 0 END)AS NVARCHAR(50)) AS [Clustered Tables],
+                        CAST(SUM(CASE WHEN index_id=1 THEN sz.total_reserved_MB ELSE 0 END)
+                            /1024. AS NUMERIC(29,1)) AS [Clustered Tables GB],
+                        SUM(CASE WHEN index_id NOT IN (0,1) THEN 1 ELSE 0 END) AS [NC Indexes],
+                        CAST(SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+                            /1024. AS NUMERIC(29,1)) AS [NC Indexes GB],
+                        CASE WHEN SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)  > 0 THEN
+                            CAST(SUM(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+                                / SUM(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END) AS NUMERIC(29,1)) 
+                            ELSE 0 END AS [ratio table: NC Indexes],
+                        SUM(CASE WHEN index_id=0 THEN 1 ELSE 0 END) AS [Heaps],
+                        CAST(SUM(CASE WHEN index_id=0 THEN sz.total_reserved_MB ELSE 0 END)
+                            /1024. AS NUMERIC(29,1)) AS [Heaps GB],
+                        SUM(CASE WHEN index_id IN (0,1) AND partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned Tables],
+                        SUM(CASE WHEN index_id NOT IN (0,1) AND  partition_key_column_name IS NOT NULL THEN 1 ELSE 0 END) AS [Partitioned NCs],
+                        CAST(SUM(CASE WHEN partition_key_column_name IS NOT NULL THEN sz.total_reserved_MB ELSE 0 END)/1024. AS NUMERIC(29,1)) AS [Partitioned GB],
+                        SUM(CASE WHEN filter_definition <> '''' THEN 1 ELSE 0 END) AS [Filtered Indexes],
+                        SUM(CASE WHEN is_indexed_view=1 THEN 1 ELSE 0 END) AS [Indexed Views],
+                        MAX(total_rows) AS [Max Row Count],
+                        CAST(MAX(CASE WHEN index_id IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+                            /1024. AS NUMERIC(29,1)) AS [Max Table GB],
+                        CAST(MAX(CASE WHEN index_id NOT IN (0,1) THEN sz.total_reserved_MB ELSE 0 END)
+                            /1024. AS NUMERIC(29,1)) AS [Max NC Index GB],
+                        SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count Tables > 1GB],
+                        SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count Tables > 10GB],
+                        SUM(CASE WHEN index_id IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count Tables > 100GB],    
+                        SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 1024 THEN 1 ELSE 0 END) AS [Count NCs > 1GB],
+                        SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 10240 THEN 1 ELSE 0 END) AS [Count NCs > 10GB],
+                        SUM(CASE WHEN index_id NOT IN (0,1) AND sz.total_reserved_MB > 102400 THEN 1 ELSE 0 END) AS [Count NCs > 100GB],
+                        MIN(create_date) AS [Oldest Create Date],
+                        MAX(create_date) AS [Most Recent Create Date],
+                        MAX(modify_date) AS [Most Recent Modify Date],
+                        1 AS [Display Order]
+            		INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+                    FROM #IndexSanity AS i
+                    --left join here so we don''t lose disabled nc indexes
+                    LEFT JOIN #IndexSanitySize AS sz 
+                        ON i.index_sanity_id=sz.index_sanity_id
+            		GROUP BY DB_NAME(i.database_id)
+                    UNION ALL
+			        SELECT  CASE WHEN '+CONVERT(NVARCHAR(1), @GetAllDatabases)+' = 1 THEN N''All Databases'' ELSE N''Database '' + N'' as of '' + CONVERT(NVARCHAR(16),GETDATE(),121) END,        
+        					'''+@ScriptVersionName+''',   
+        					N''From Your Community Volunteers'' ,   
+        					N''http://FirstResponderKit.org'' ,
+        					'''+@DaysUptimeInsertValue+''',
+        					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+        					NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+        					NULL,NULL,0 AS display_order	 
+                    ORDER BY [Display Order] ASC
+                    OPTION (RECOMPILE);
+    			';
+    			EXEC sp_executesql @StringToExecute;
+    		END;
+-- luporpi --END--
+        END;
+
     END; /* End @Mode=1 (summarize)*/
     ELSE IF (@Mode=2) /*Index Detail*/
     BEGIN
@@ -4347,7 +4760,9 @@ BEGIN;
 		DECLARE @LinkedServerDBCheck NVARCHAR(2000);
 		DECLARE @ValidLinkedServerDB INT;
 		DECLARE @tmpdbchk TABLE (cnt INT);
-		DECLARE @StringToExecute NVARCHAR(MAX);
+-- luporpi --BEGIN--
+		--DECLARE @StringToExecute NVARCHAR(MAX);
+-- luporpi --END--
 		
 		IF @OutputServerName IS NOT NULL
 			BEGIN
@@ -4568,8 +4983,6 @@ BEGIN;
 											[schema_name], 
 											[table_name], 
 											[index_name],
-                                            [Drop_Tsql],
-                                            [Create_Tsql], 
 											[index_id], 
 											[db_schema_object_indexid], 
 											[object_type], 
@@ -4630,6 +5043,8 @@ BEGIN;
 											[create_date], 
 											[modify_date], 
 											[more_info],
+                                            [Drop_Tsql],
+                                            [Create_Tsql],
 											[display_order]
 										)
 									SELECT ''@@@RunID@@@'',
@@ -4705,7 +5120,7 @@ BEGIN;
 										more_info AS [More Info],
                                         CASE 
 						                    WHEN i.is_primary_key = 1 AND i.index_definition <> ''[HEAP]''
-							                    THEN N''-ALTER TABLE '' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
+							                    THEN N''--ALTER TABLE '' + QUOTENAME(i.[schema_name]) + N''.'' + QUOTENAME(i.[object_name]) +
 							                         N'' DROP CONSTRAINT '' + QUOTENAME(i.index_name) + N'';''
 						                    WHEN i.is_primary_key = 0 AND i.index_definition <> ''[HEAP]''
 						                        THEN N''--DROP INDEX ''+ QUOTENAME(i.index_name) + N'' ON '' + 
@@ -4832,8 +5247,12 @@ BEGIN;
     END; /* End @Mode=2 (index detail)*/
     ELSE IF (@Mode=3) /*Missing index Detail*/
     BEGIN
-		IF(@OutputType <> 'NONE')
-		BEGIN;
+        IF(@OutputType <> 'NONE')
+		BEGIN
+-- luporpi --BEGIN--
+        	IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+        	BEGIN
+-- luporpi --END--
 			WITH create_date AS (
 						SELECT i.database_id,
 							   i.schema_name,
@@ -4880,7 +5299,64 @@ BEGIN;
 				NULL, 0 AS [Display Order], NULL AS is_low
 			ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
 			OPTION (RECOMPILE);
-	  	END;
+-- luporpi --BEGIN--
+            END;
+            ELSE
+            BEGIN
+        		SET @OutputTableNameNEW = @OutputTableName
+        		SET @StringToExecute = N'
+            		WITH create_date AS (
+            					SELECT i.database_id,
+            						   i.schema_name,
+            						   i.[object_id], 
+            						   ISNULL(NULLIF(MAX(DATEDIFF(DAY, i.create_date, SYSDATETIME())), 0), 1) AS create_days
+            					FROM #IndexSanity AS i
+            					GROUP BY i.database_id, i.schema_name, i.object_id
+            					)
+                    SELECT 
+                        mi.database_name AS [Database Name], 
+                        mi.[schema_name] AS [Schema], 
+                        mi.table_name AS [Table], 
+                        CAST((mi.magic_benefit_number / CASE WHEN cd.create_days < '+CAST(@DaysUptime AS nvarchar(30))+' THEN cd.create_days ELSE '+CAST(@DaysUptime AS nvarchar(30))+' END) AS BIGINT)
+                            AS [Magic Benefit Number], 
+                        mi.missing_index_details AS [Missing Index Details], 
+                        mi.avg_total_user_cost AS [Avg Query Cost], 
+                        mi.avg_user_impact AS [Est Index Improvement], 
+                        mi.user_seeks AS [Seeks], 
+                        mi.user_scans AS [Scans],
+                        mi.unique_compiles AS [Compiles], 
+                        mi.equality_columns AS [Equality Columns], 
+                        mi.inequality_columns AS [Inequality Columns], 
+                        mi.included_columns AS [Included Columns], 
+                        mi.index_estimated_impact AS [Estimated Impact], 
+                        mi.create_tsql AS [Create TSQL], 
+                        mi.more_info AS [More Info],
+                        1 AS [Display Order],
+            			mi.is_low
+            		INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+                    FROM #MissingIndexes AS mi
+            		LEFT JOIN create_date AS cd
+            		ON mi.[object_id] =  cd.object_id 
+            		AND mi.database_id = cd.database_id
+            		AND mi.schema_name = cd.schema_name
+                    /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
+                    WHERE (mi.magic_benefit_number / CASE WHEN cd.create_days < '+CAST(@DaysUptime AS nvarchar(30))+' THEN cd.create_days ELSE '+CAST(@DaysUptime AS nvarchar(30))+' END) >= 100000
+                    UNION ALL
+        			SELECT               
+        				'''+@ScriptVersionName+''',   
+        				N''From Your Community Volunteers'' ,   
+        				N''http://FirstResponderKit.org'' ,
+        				100000000000,
+        				'''+@DaysUptimeInsertValue+''',
+        				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
+        				NULL, 0 AS [Display Order], NULL AS is_low
+                    ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
+            		OPTION (RECOMPILE);
+        		';
+        		EXEC sp_executesql @StringToExecute;
+        	END;
+-- luporpi --END--
+        END;
 
 	IF  (@BringThePain = 1
 	AND @DatabaseName IS NOT NULL

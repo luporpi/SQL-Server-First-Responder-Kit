@@ -1566,12 +1566,27 @@ BEGIN
         INSERT #only_sql_handles ( sql_handle )
         EXEC sys.sp_executesql @function_search_sql, N'@i_StoredProcName NVARCHAR(128)', @StoredProcName
        END
-		
-        IF (SELECT COUNT(*) FROM #only_sql_handles) = 0
-			BEGIN
-			RAISERROR(N'No information for that stored procedure was found.', 0, 1) WITH NOWAIT;
-			RETURN;
-			END;
+
+	IF (SELECT COUNT(*) FROM #only_sql_handles) = 0
+        BEGIN
+-- luporpi --BEGIN--
+            IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+            BEGIN
+-- luporpi --END--
+                RAISERROR(N'No information for that stored procedure was found.', 0, 1) WITH NOWAIT;
+-- luporpi --BEGIN--
+            END;
+            ELSE
+            BEGIN
+                DECLARE @error NVARCHAR(MAX);
+                SET @error = N'SELECT ''No information for that stored procedure was found.'' [error]
+                INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableName
+
+                EXEC sp_executesql @error
+            END;
+-- luporpi --END--
+            RETURN;
+         END;
 
 END;
 
