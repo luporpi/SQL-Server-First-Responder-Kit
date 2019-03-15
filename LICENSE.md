@@ -1,11 +1,18 @@
 MIT License
 
 Copyright (c) 2019 Ralf Pickel
+
 Copyright (c) 2019 Brent Ozar Unlimited
+
 Copyright (c) 2015-2019 Konstantin Taranov
+
 Copyright (c) 2018 Josh Darnell
+
 Copyright (c) 2016 GregWhiteDBA
+
 Copyright (c) Microsoft Corporation
+
+
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
