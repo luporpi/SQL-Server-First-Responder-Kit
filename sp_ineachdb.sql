@@ -34,6 +34,7 @@ BEGIN
   SET NOCOUNT ON;
 
   SELECT @Version = '2.4', @VersionDate = '20190320';
+  SELECT @Version = '2.5', @VersionDate = '20190427';
   
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -87,6 +88,9 @@ IF @Help = 1
 		
 		*/
 		';
+		
+		RETURN -1;
+	END
 
   DECLARE @exec   nvarchar(150),
           @sx     nvarchar(18) = N'.sys.sp_executesql',
@@ -264,6 +268,5 @@ IF @Help = 1
 
   CLOSE dbs; 
   DEALLOCATE dbs;
-END
 END
 GO
