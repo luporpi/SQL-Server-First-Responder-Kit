@@ -40,7 +40,6 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
 SELECT @Version = '7.5', @VersionDate = '20190427';
 SET @OutputType  = UPPER(@OutputType);
 
@@ -5075,6 +5074,8 @@ BEGIN;
 											[schema_name], 
 											[table_name], 
 											[index_name],
+                                            [Drop_Tsql],
+                                            [Create_Tsql], 
 											[index_id], 
 											[db_schema_object_indexid], 
 											[object_type], 
@@ -5135,9 +5136,6 @@ BEGIN;
 											[create_date], 
 											[modify_date], 
 											[more_info],
-                                            [Drop_Tsql],
-                                            [Create_Tsql],
-                                            [Create_Tsql], 
 											[display_order]
 										)
 									SELECT ''@@@RunID@@@'',

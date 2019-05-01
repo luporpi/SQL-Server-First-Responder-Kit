@@ -30,7 +30,6 @@ SET NOCOUNT ON;
 BEGIN;
 
 
-SELECT @Version = '3.4', @VersionDate = '20190320';
 SELECT @Version = '3.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
@@ -1523,7 +1522,6 @@ SET NOCOUNT ON;
 
 BEGIN;
 
-SELECT @Version = '3.4', @VersionDate = '20190320';
 SELECT @Version = '3.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
@@ -2847,7 +2845,6 @@ AS
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
 
-	SELECT @Version = '7.4', @VersionDate = '20190320';
 	SELECT @Version = '7.5', @VersionDate = '20190427';
 	SET @OutputType = UPPER(@OutputType);
 
@@ -11798,7 +11795,6 @@ AS
     SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '3.4', @VersionDate = '20190320';
 	SELECT @Version = '3.5', @VersionDate = '20190427';
 	
 	IF(@VersionCheckMode = 1)
@@ -13571,7 +13567,6 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
 SELECT @Version = '7.5', @VersionDate = '20190427';
 
 
@@ -19954,7 +19949,6 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
 SELECT @Version = '7.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
@@ -23912,7 +23906,6 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
 SELECT @Version = '7.5', @VersionDate = '20190427';
 SET @OutputType  = UPPER(@OutputType);
 
@@ -28906,7 +28899,6 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '2.4', @VersionDate = '20190320';
 SELECT @Version = '2.5', @VersionDate = '20190427';
 
 
@@ -30175,7 +30167,6 @@ BEGIN /*First BEGIN*/
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '3.4', @VersionDate = '20190320';
 SELECT @Version = '3.5', @VersionDate = '20190427';
 IF(@VersionCheckMode = 1)
 BEGIN
@@ -35901,7 +35892,6 @@ BEGIN
 	SET NOCOUNT ON;
 	SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 	
-	SELECT @Version = '7.4', @VersionDate = '20190320';
 	SELECT @Version = '7.5', @VersionDate = '20190427';
     
 	IF(@VersionCheckMode = 1)
@@ -36788,7 +36778,6 @@ SET NOCOUNT ON;
 
 /*Versioning details*/
 
-SELECT @Version = '7.4', @VersionDate = '20190320';
 SELECT @Version = '7.5', @VersionDate = '20190427';
 
 IF(@VersionCheckMode = 1)
@@ -37910,7 +37899,6 @@ ALTER PROCEDURE dbo.sp_foreachdb
 AS
     BEGIN
         SET NOCOUNT ON;
-        SELECT @Version = '3.4', @VersionDate = '20190320';
         SELECT @Version = '3.5', @VersionDate = '20190427';
 		
 IF(@VersionCheckMode = 1)
@@ -38196,7 +38184,6 @@ AS
 BEGIN
   SET NOCOUNT ON;
 
-  SELECT @Version = '2.4', @VersionDate = '20190320';
   SELECT @Version = '2.5', @VersionDate = '20190427';
   
 IF(@VersionCheckMode = 1)
