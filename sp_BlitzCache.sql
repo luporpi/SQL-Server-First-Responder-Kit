@@ -4907,7 +4907,14 @@ IF @Debug = 1
         PRINT SUBSTRING(@sql, 36000, 40000);
     END;
 
+-- luporpi --BEGIN--
+            IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+            BEGIN
+-- luporpi --END--
 EXEC sp_executesql @sql, N'@Top INT, @spid INT, @minimumExecutionCount INT, @min_back INT', @Top, @@SPID, @MinimumExecutionCount, @MinutesBack;
+-- luporpi --BEGIN--
+            END;
+-- luporpi --END--
 
 IF @HideSummary = 0 AND @ExportToExcel = 0
 BEGIN
