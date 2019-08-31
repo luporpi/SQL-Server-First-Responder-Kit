@@ -2295,7 +2295,7 @@ BEGIN
             )
             SELECT 
                     db_schema_object_indexid AS [Details: db_schema.table.index(indexid)], 
-                    index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+                    LEFT(index_definition,4000) AS [Definition: [Property]] ColumnName {datatype maxbytes}],
                     secret_columns AS [Secret Columns],
                     fill_factor AS [Fillfactor],
                     index_usage_summary AS [Usage Stats], 
@@ -4615,7 +4615,7 @@ BEGIN;
 						+ br.finding AS [Finding], 
 					br.[database_name] AS [Database Name],
 					br.details AS [Details: schema.table.index(indexid)], 
-					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+					LEFT(br.index_definition,4000) AS [Definition: [Property]] ColumnName {datatype maxbytes}],
 					ISNULL(br.secret_columns,'''') AS [Secret Columns],          
 					br.index_usage_summary AS [Usage], 
 					br.index_size_summary AS [Size],
@@ -4677,7 +4677,7 @@ BEGIN;
     						+ br.finding AS [Finding], 
     					br.[database_name] AS [Database Name],
     					br.details AS [Details: schema.table.index(indexid)], 
-    					br.index_definition AS [Definition: [Property]] ColumnName {datatype maxbytes}], 
+    					LEFT(br.index_definition,4000) AS [Definition: [Property]] ColumnName {datatype maxbytes}],
     					ISNULL(br.secret_columns,'''') AS [Secret Columns],          
     					br.index_usage_summary AS [Usage], 
     					br.index_size_summary AS [Size],
