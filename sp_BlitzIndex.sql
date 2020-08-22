@@ -2680,10 +2680,11 @@ BEGIN
                 ON mi.[object_id] =  cd.object_id 
                 AND mi.database_id = cd.database_id
                 AND mi.schema_name = cd.schema_name
-                WHERE   mi.[object_id] = '+CAST(@DaysUptime AS nvarchar(30))+'
+                WHERE   mi.[object_id] = ' + CAST(@ObjectID AS nvarchar(30)) + '
+                AND (' + CAST(@ShowAllMissingIndexRequests AS nvarchar(30)) + '=1
                         /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
-                AND (magic_benefit_number / CASE WHEN cd.create_days < ' +CAST(@DaysUptime AS nvarchar(30))+ ' THEN cd.create_days ELSE ' +CAST(@DaysUptime AS nvarchar(30))+ ' END) >= 100000
-                ORDER BY is_low, magic_benefit_number DESC
+                OR (magic_benefit_number / CASE WHEN cd.create_days < ' +CAST(@DaysUptime AS nvarchar(30))+ ' THEN cd.create_days ELSE ' +CAST(@DaysUptime AS nvarchar(30))+ ' END) >= 100000)
+                ORDER BY magic_benefit_number DESC
                 OPTION    ( RECOMPILE );
             ';
             EXEC sp_executesql @StringToExecute;
@@ -5740,10 +5741,13 @@ BEGIN;
                         mi.avg_user_impact AS [Est Index Improvement], 
                         mi.user_seeks AS [Seeks], 
                         mi.user_scans AS [Scans],
-                        mi.unique_compiles AS [Compiles], 
-                        mi.equality_columns AS [Equality Columns], 
-                        mi.inequality_columns AS [Inequality Columns], 
-                        mi.included_columns AS [Included Columns], 
+                        mi.unique_compiles AS [Compiles],
+                        mi.equality_columns AS [EC],
+                        mi.equality_columns_with_data_type AS [Equality Columns],
+                        mi.inequality_columns,
+                        mi.inequality_columns_with_data_type AS [Inequality Columns],
+                        mi.included_columns,
+                        mi.included_columns_with_data_type AS [Included Columns], 
                         mi.index_estimated_impact AS [Estimated Impact], 
                         mi.create_tsql AS [Create TSQL], 
                         mi.more_info AS [More Info],
@@ -5756,7 +5760,8 @@ BEGIN;
             		AND mi.database_id = cd.database_id
             		AND mi.schema_name = cd.schema_name
                     /* Minimum benefit threshold = 100k/day of uptime OR since table creation date, whichever is lower*/
-                    WHERE (mi.magic_benefit_number / CASE WHEN cd.create_days < '+CAST(@DaysUptime AS nvarchar(30))+' THEN cd.create_days ELSE '+CAST(@DaysUptime AS nvarchar(30))+' END) >= 100000
+                    WHERE '+CAST(@ShowAllMissingIndexRequests AS nvarchar(30))+'=1
+                    OR (mi.magic_benefit_number / CASE WHEN cd.create_days < '+CAST(@DaysUptime AS nvarchar(30))+' THEN cd.create_days ELSE '+CAST(@DaysUptime AS nvarchar(30))+' END) >= 100000
                     UNION ALL
         			SELECT               
         				'''+@ScriptVersionName+''',   
@@ -5765,8 +5770,8 @@ BEGIN;
         				100000000000,
         				'''+@DaysUptimeInsertValue+''',
         				NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-        				NULL, 0 AS [Display Order], NULL AS is_low
-                    ORDER BY [Display Order] ASC, is_low, [Magic Benefit Number] DESC
+        				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low
+                    ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
             		OPTION (RECOMPILE);
         		';
         		EXEC sp_executesql @StringToExecute;
