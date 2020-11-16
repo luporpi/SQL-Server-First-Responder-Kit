@@ -2741,7 +2741,7 @@ BEGIN
                                 GROUP BY i.database_id, i.schema_name, i.object_id
                                 )
                 SELECT  N''Missing index.'' AS Finding ,
-                        N''http://BrentOzar.com/go/Indexaphobia'' AS URL ,
+                        N''https://www.brentozar.com/go/Indexaphobia'' AS URL ,
                         mi.[statement] + 
                         '' Est. Benefit: ''
                             + CASE WHEN magic_benefit_number >= 922337203685477 THEN ''>= 922,337,203,685,477''
@@ -2751,7 +2751,8 @@ BEGIN
                             END AS [Estimated Benefit],
                         missing_index_details AS [Missing Index Request] ,
                         index_estimated_impact AS [Estimated Impact],
-                        create_tsql AS [Create TSQL]
+                        create_tsql AS [Create TSQL],
+                        sample_query_plan AS [Sample Query Plan]
                 INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
                 FROM    #MissingIndexes mi
                 LEFT JOIN create_date AS cd
@@ -5122,9 +5123,6 @@ BEGIN;
 					br.index_sanity_id=sn.index_sanity_id
 				LEFT JOIN #IndexCreateTsql ts ON 
 					br.index_sanity_id=ts.index_sanity_id
-				WHERE br.check_id IN ( 0, 1, 2, 11, 12, 13, 
-				                      22, 34, 43, 47, 48, 
-				                      50, 65, 68, 73, 99 )
 				ORDER BY br.Priority ASC, br.check_id ASC, br.blitz_result_id ASC, br.findings_group ASC
 				OPTION (RECOMPILE);
     				';
@@ -5963,7 +5961,8 @@ ELSE IF (@Mode=1) /*Summarize*/
                         mi.create_tsql AS [Create TSQL], 
                         mi.more_info AS [More Info],
                         1 AS [Display Order],
-            			mi.is_low
+            			mi.is_low,
+				        mi.sample_query_plan AS [Sample Query Plan]
             		INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
                     FROM #MissingIndexes AS mi
             		LEFT JOIN create_date AS cd
@@ -5981,7 +5980,7 @@ ELSE IF (@Mode=1) /*Summarize*/
         				100000000000,
         				'''+@DaysUptimeInsertValue+''',
         				NULL,NULL,NULL,NULL,NULL,NULL,NULL,
-        				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low
+        				NULL, NULL, NULL, NULL, 0 AS [Display Order], NULL AS is_low, NULL
                     ORDER BY [Display Order] ASC, [Magic Benefit Number] DESC
             		OPTION (RECOMPILE);
         		';
