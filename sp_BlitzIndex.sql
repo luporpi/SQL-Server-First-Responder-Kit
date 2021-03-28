@@ -45,7 +45,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.01', @VersionDate = '20210222';
+SELECT @Version = '8.02', @VersionDate = '20210322';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -762,6 +762,7 @@ IF @GetAllDatabases = 1
         AND database_id > 4
         AND DB_NAME(database_id) NOT LIKE 'ReportServer%'
         AND DB_NAME(database_id) NOT LIKE 'rdsadmin%'
+		AND LOWER(name) NOT IN('dbatools', 'dbadmin', 'dbmaintenance')
         AND is_distributor = 0
 		OPTION    ( RECOMPILE );
 
