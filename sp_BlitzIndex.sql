@@ -2534,12 +2534,12 @@ BEGIN
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
  
--- luporpi --BEGIN--
-    IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
-    BEGIN
--- luporpi --END--
    	IF (@ShowColumnstoreOnly = 0)
 	BEGIN
+-- luporpi --BEGIN--
+        IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+        BEGIN
+-- luporpi --END--
 	   WITH table_mode_cte AS (
         SELECT 
             s.db_schema_object_indexid, 
@@ -2714,7 +2714,7 @@ BEGIN
         ';
         EXEC sp_executesql @StringToExecute;
     END;
-    -- luporpi --END--
+-- luporpi --END--
 
     IF (SELECT TOP 1 [object_id] FROM    #MissingIndexes mi) IS NOT NULL
     BEGIN
@@ -2754,9 +2754,9 @@ BEGIN
             OR (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000)
         ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
-    END;       
-    ELSE     
 -- luporpi --BEGIN--
+        END;       
+        ELSE     
         BEGIN
             SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
             SET @StringToExecute = N'
@@ -2795,27 +2795,28 @@ BEGIN
                 OPTION    ( RECOMPILE );
             ';
             EXEC sp_executesql @StringToExecute;
-		    END;
-    END;
+        END;
 -- luporpi --END--
+    END;
     ELSE
 -- luporpi --BEGIN--
     BEGIN
-    		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+        IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
         BEGIN
 -- luporpi --END--
     SELECT 'No missing indexes.' AS finding;
 -- luporpi --BEGIN--
         END;
-		BEGIN
-			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
-			SET @StringToExecute = N'
-				SELECT ''No missing indexes.'' AS finding
-				INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + ';
-			';
-			EXEC sp_executesql @StringToExecute;
-		END;
-	END;
+        ELSE
+        BEGIN
+            SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
+            SET @StringToExecute = N'
+                SELECT ''No missing indexes.'' AS finding
+                INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + ';
+            ';
+            EXEC sp_executesql @StringToExecute;
+        END;
+    END;
 -- luporpi --END--
 
 -- luporpi --BEGIN--
@@ -2918,30 +2919,32 @@ BEGIN
         FROM #ForeignKeys
         ORDER BY [Foreign Key]
         OPTION    ( RECOMPILE );
+-- luporpi --BEGIN--
+        END;
+        ELSE
+            BEGIN
+                SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__3');
+                SET @StringToExecute = N'
+                SELECT [database_name] + N'':'' + parent_object_name + N'': '' + foreign_key_name AS [Foreign Key],
+                    parent_fk_columns AS [Foreign Key Columns],
+                    referenced_object_name AS [Referenced Table],
+                    referenced_fk_columns AS [Referenced Table Columns],
+                    is_disabled AS [Is Disabled?],
+                    is_not_trusted AS [Not Trusted?],
+                    is_not_for_replication [Not for Replication?],
+                    [update_referential_action_desc] AS [Cascading Updates?],
+                    [delete_referential_action_desc] AS [Cascading Deletes?]
+                INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+                FROM #ForeignKeys
+                ORDER BY [Foreign Key]
+                OPTION    ( RECOMPILE );
+                ';
+                EXEC sp_executesql @StringToExecute;
+            END;
+-- luporpi --END--
     END;
     ELSE
 -- luporpi --BEGIN--
-        BEGIN
-			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__3');
-			SET @StringToExecute = N'
-			SELECT [database_name] + N'':'' + parent_object_name + N'': '' + foreign_key_name AS [Foreign Key],
-				parent_fk_columns AS [Foreign Key Columns],
-				referenced_object_name AS [Referenced Table],
-				referenced_fk_columns AS [Referenced Table Columns],
-				is_disabled AS [Is Disabled?],
-				is_not_trusted AS [Not Trusted?],
-				is_not_for_replication [Not for Replication?],
-				[update_referential_action_desc] AS [Cascading Updates?],
-				[delete_referential_action_desc] AS [Cascading Deletes?]
-			INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
-			FROM #ForeignKeys
-			ORDER BY [Foreign Key]
-			OPTION    ( RECOMPILE );
-			';
-			EXEC sp_executesql @StringToExecute;
-		END;
-    END;
-    ELSE
 	BEGIN
 		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL
 		BEGIN
@@ -2953,9 +2956,11 @@ BEGIN
 			EXEC sp_executesql @StringToExecute;
 		END;
 		ELSE
+        BEGIN
 -- luporpi --END--
 		SELECT 'No foreign keys.' AS finding;
 -- luporpi --BEGIN--
+        END;
 	END;
 -- luporpi --END--
 
@@ -2980,6 +2985,7 @@ BEGIN
                     WHERE s.object_id = @ObjectID
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
+-- luporpi --BEGIN--
         END;
         ELSE
         BEGIN
@@ -3001,7 +3007,7 @@ BEGIN
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
             EXEC sp_executesql @StringToExecute, N'@ObjectID INT', @ObjectID;
         END;
-    END
+-- luporpi --END--
      END
 	END
 
