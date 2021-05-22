@@ -32,7 +32,7 @@ BEGIN
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.02', @VersionDate = '20210322';
+SELECT @Version = '8.03', @VersionDate = '20210420';
 
 
 IF(@VersionCheckMode = 1)
@@ -85,7 +85,6 @@ END;
 	   I took a long look at this one, and:
 		1) Trying to account for all the weird places these could crop up is a losing effort. 
 		2) Replace is slow af on lots of XML.
-	- Your mom.
 
 
 

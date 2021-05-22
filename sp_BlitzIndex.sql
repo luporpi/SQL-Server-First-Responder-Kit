@@ -23,6 +23,7 @@ ALTER PROCEDURE dbo.sp_BlitzIndex
     @SkipPartitions BIT	= 0,
     @SkipStatistics BIT	= 1,
     @GetAllDatabases BIT = 0,
+	@ShowColumnstoreOnly BIT = 0, /* Will show only the Row Group and Segment details for a table with a columnstore index. */
     @BringThePain BIT = 0,
     @IgnoreDatabases NVARCHAR(MAX) = NULL, /* Comma-delimited list of databases you want to skip */
     @ThresholdMB INT = 250 /* Number of megabytes that an object must be before we include it in basic results */,
@@ -45,7 +46,7 @@ AS
 SET NOCOUNT ON;
 SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;
 
-SELECT @Version = '8.02', @VersionDate = '20210322';
+SELECT @Version = '8.03', @VersionDate = '20210420';
 SET @OutputType  = UPPER(@OutputType);
 
 IF(@VersionCheckMode = 1)
@@ -1645,24 +1646,40 @@ BEGIN TRY
                     AND ColumnNamesWithDataTypes.IndexColumnType = ''Included''
                 ) AS included_columns_with_data_type '
 
-		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:
-        IF NOT EXISTS (SELECT * FROM sys.all_objects WHERE name = 'dm_db_missing_index_group_stats_query')
-        */
-			SET @dsql = @dsql + N' , NULL AS sample_query_plan '
-		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:
+		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:*/
+        IF NOT EXISTS
+		(
+		    SELECT
+			    1/0
+			FROM sys.all_objects AS o
+			WHERE o.name = 'dm_db_missing_index_group_stats_query'
+	    )
+        SELECT
+		    @dsql += N' , NULL AS sample_query_plan '
+		/* Github #2780 BGO Removing SQL Server 2019's new missing index sample plan because it doesn't work yet:*/
         ELSE
 		BEGIN
-			SET @dsql = @dsql + N' , sample_query_plan = (SELECT TOP 1 p.query_plan
-				FROM sys.dm_db_missing_index_group_stats gs 
-				CROSS APPLY (SELECT TOP 1 s.plan_handle 
-					FROM sys.dm_db_missing_index_group_stats_query q 
-					INNER JOIN sys.dm_exec_query_stats s ON q.query_plan_hash = s.query_plan_hash
-					WHERE gs.group_handle = q.group_handle 
-					ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC) q2
-				CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
-				WHERE gs.group_handle = gs.group_handle) '
+			SELECT
+			    @dsql += N'
+			, sample_query_plan =
+			  (
+			      SELECT TOP (1)
+				      p.query_plan
+				  FROM sys.dm_db_missing_index_group_stats gs 
+				  CROSS APPLY
+				  (
+				      SELECT TOP (1)
+					      s.plan_handle
+				  	  FROM sys.dm_db_missing_index_group_stats_query q 
+				  	  INNER JOIN sys.dm_exec_query_stats s
+					      ON q.query_plan_hash = s.query_plan_hash
+				  	  WHERE gs.group_handle = q.group_handle 
+				  	  ORDER BY (q.user_seeks + q.user_scans) DESC, s.total_logical_reads DESC
+			      ) q2
+				  CROSS APPLY sys.dm_exec_query_plan(q2.plan_handle) p
+			  ) '
 		END
-        */
+        
         
 
 		SET @dsql = @dsql + N'FROM    ' + QUOTENAME(@DatabaseName) + N'.sys.dm_db_missing_index_groups ig
@@ -2517,9 +2534,11 @@ BEGIN
     --We do a left join here in case this is a disabled NC.
     --In that case, it won't have any size info/pages allocated.
  
+   	IF (@ShowColumnstoreOnly = 0)
+	BEGIN
 -- luporpi --BEGIN--
-    IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
-    BEGIN
+        IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+        BEGIN
 -- luporpi --END--
 	   WITH table_mode_cte AS (
         SELECT 
@@ -2695,7 +2714,7 @@ BEGIN
         ';
         EXEC sp_executesql @StringToExecute;
     END;
-    -- luporpi --END--
+-- luporpi --END--
 
     IF (SELECT TOP 1 [object_id] FROM    #MissingIndexes mi) IS NOT NULL
     BEGIN
@@ -2735,9 +2754,9 @@ BEGIN
             OR (magic_benefit_number / CASE WHEN cd.create_days < @DaysUptime THEN cd.create_days ELSE @DaysUptime END) >= 100000)
         ORDER BY magic_benefit_number DESC
         OPTION    ( RECOMPILE );
-    END;       
-    ELSE     
 -- luporpi --BEGIN--
+        END;       
+        ELSE     
         BEGIN
             SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
             SET @StringToExecute = N'
@@ -2776,27 +2795,28 @@ BEGIN
                 OPTION    ( RECOMPILE );
             ';
             EXEC sp_executesql @StringToExecute;
-		    END;
-    END;
+        END;
 -- luporpi --END--
+    END;
     ELSE
 -- luporpi --BEGIN--
     BEGIN
-    		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
+        IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NULL
         BEGIN
 -- luporpi --END--
     SELECT 'No missing indexes.' AS finding;
 -- luporpi --BEGIN--
         END;
-		BEGIN
-			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
-			SET @StringToExecute = N'
-				SELECT ''No missing indexes.'' AS finding
-				INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + ';
-			';
-			EXEC sp_executesql @StringToExecute;
-		END;
-	END;
+        ELSE
+        BEGIN
+            SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__1');
+            SET @StringToExecute = N'
+                SELECT ''No missing indexes.'' AS finding
+                INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + ';
+            ';
+            EXEC sp_executesql @StringToExecute;
+        END;
+    END;
 -- luporpi --END--
 
 -- luporpi --BEGIN--
@@ -2899,30 +2919,32 @@ BEGIN
         FROM #ForeignKeys
         ORDER BY [Foreign Key]
         OPTION    ( RECOMPILE );
+-- luporpi --BEGIN--
+        END;
+        ELSE
+            BEGIN
+                SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__3');
+                SET @StringToExecute = N'
+                SELECT [database_name] + N'':'' + parent_object_name + N'': '' + foreign_key_name AS [Foreign Key],
+                    parent_fk_columns AS [Foreign Key Columns],
+                    referenced_object_name AS [Referenced Table],
+                    referenced_fk_columns AS [Referenced Table Columns],
+                    is_disabled AS [Is Disabled?],
+                    is_not_trusted AS [Not Trusted?],
+                    is_not_for_replication [Not for Replication?],
+                    [update_referential_action_desc] AS [Cascading Updates?],
+                    [delete_referential_action_desc] AS [Cascading Deletes?]
+                INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
+                FROM #ForeignKeys
+                ORDER BY [Foreign Key]
+                OPTION    ( RECOMPILE );
+                ';
+                EXEC sp_executesql @StringToExecute;
+            END;
+-- luporpi --END--
     END;
     ELSE
 -- luporpi --BEGIN--
-        BEGIN
-			SET @OutputTableNameNEW = STUFF(@OutputTableName, LEN(@OutputTableName), 0, '__3');
-			SET @StringToExecute = N'
-			SELECT [database_name] + N'':'' + parent_object_name + N'': '' + foreign_key_name AS [Foreign Key],
-				parent_fk_columns AS [Foreign Key Columns],
-				referenced_object_name AS [Referenced Table],
-				referenced_fk_columns AS [Referenced Table Columns],
-				is_disabled AS [Is Disabled?],
-				is_not_trusted AS [Not Trusted?],
-				is_not_for_replication [Not for Replication?],
-				[update_referential_action_desc] AS [Cascading Updates?],
-				[delete_referential_action_desc] AS [Cascading Deletes?]
-			INTO ' + @OutputDatabaseName + '.' + @OutputSchemaName + '.' + @OutputTableNameNEW + '
-			FROM #ForeignKeys
-			ORDER BY [Foreign Key]
-			OPTION    ( RECOMPILE );
-			';
-			EXEC sp_executesql @StringToExecute;
-		END;
-    END;
-    ELSE
 	BEGIN
 		IF COALESCE(@OutputDatabaseName, @OutputSchemaName, @OutputTableName) IS NOT NULL
 		BEGIN
@@ -2934,9 +2956,11 @@ BEGIN
 			EXEC sp_executesql @StringToExecute;
 		END;
 		ELSE
+        BEGIN
 -- luporpi --END--
 		SELECT 'No foreign keys.' AS finding;
 -- luporpi --BEGIN--
+        END;
 	END;
 -- luporpi --END--
 
@@ -2961,6 +2985,7 @@ BEGIN
                     WHERE s.object_id = @ObjectID
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
         EXEC sp_executesql @dsql, N'@ObjectID INT', @ObjectID;
+-- luporpi --BEGIN--
         END;
         ELSE
         BEGIN
@@ -2982,7 +3007,9 @@ BEGIN
                     ORDER BY s.auto_created, s.user_created, s.name, hist.step_number;';
             EXEC sp_executesql @StringToExecute, N'@ObjectID INT', @ObjectID;
         END;
-    END
+-- luporpi --END--
+     END
+	END
 
     /* Visualize columnstore index contents. More info: https://github.com/BrentOzarULTD/SQL-Server-First-Responder-Kit/issues/2584 */
     IF 2 = (SELECT SUM(1) FROM sys.all_objects WHERE name IN ('column_store_row_groups','column_store_segments'))
@@ -5781,46 +5808,45 @@ ELSE IF (@Mode=1) /*Summarize*/
 			FROM    #IndexSanity AS i --left join here so we don't lose disabled nc indexes
 					LEFT JOIN #IndexSanitySize AS sz ON i.index_sanity_id = sz.index_sanity_id
                     LEFT JOIN #IndexCreateTsql AS ict ON i.index_sanity_id = ict.index_sanity_id
-			ORDER BY CASE WHEN @SortDirection = 'desc' THEN
-						CASE WHEN @SortOrder = N'rows' THEN sz.total_rows
-							WHEN @SortOrder = N'reserved_mb' THEN sz.total_reserved_MB
-							WHEN @SortOrder = N'size' THEN sz.total_reserved_MB
-							WHEN @SortOrder = N'reserved_lob_mb' THEN sz.total_reserved_LOB_MB
-							WHEN @SortOrder = N'lob' THEN sz.total_reserved_LOB_MB
-							WHEN @SortOrder = N'total_row_lock_wait_in_ms' THEN COALESCE(sz.total_row_lock_wait_in_ms,0)
-							WHEN @SortOrder = N'total_page_lock_wait_in_ms' THEN COALESCE(sz.total_page_lock_wait_in_ms,0)
-							WHEN @SortOrder = N'lock_time' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0))
-							WHEN @SortOrder = N'total_reads' THEN total_reads
-							WHEN @SortOrder = N'reads' THEN total_reads
-							WHEN @SortOrder = N'user_updates' THEN user_updates
-							WHEN @SortOrder = N'writes' THEN user_updates
-							WHEN @SortOrder = N'reads_per_write' THEN reads_per_write
-							WHEN @SortOrder = N'ratio' THEN reads_per_write
-							WHEN @SortOrder = N'forward_fetches' THEN sz.total_forwarded_fetch_count 
-							WHEN @SortOrder = N'fetches' THEN sz.total_forwarded_fetch_count 
-							ELSE NULL END
-						ELSE 1 END
-						DESC, /* Shout out to DHutmacher */
-					CASE WHEN @SortDirection = 'asc' THEN
-						CASE WHEN @SortOrder = N'rows' THEN sz.total_rows
-							WHEN @SortOrder = N'reserved_mb' THEN sz.total_reserved_MB
-							WHEN @SortOrder = N'size' THEN sz.total_reserved_MB
-							WHEN @SortOrder = N'reserved_lob_mb' THEN sz.total_reserved_LOB_MB
-							WHEN @SortOrder = N'lob' THEN sz.total_reserved_LOB_MB
-							WHEN @SortOrder = N'total_row_lock_wait_in_ms' THEN COALESCE(sz.total_row_lock_wait_in_ms,0)
-							WHEN @SortOrder = N'total_page_lock_wait_in_ms' THEN COALESCE(sz.total_page_lock_wait_in_ms,0)
-							WHEN @SortOrder = N'lock_time' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0))
-							WHEN @SortOrder = N'total_reads' THEN total_reads
-							WHEN @SortOrder = N'reads' THEN total_reads
-							WHEN @SortOrder = N'user_updates' THEN user_updates
-							WHEN @SortOrder = N'writes' THEN user_updates
-							WHEN @SortOrder = N'reads_per_write' THEN reads_per_write
-							WHEN @SortOrder = N'ratio' THEN reads_per_write
-							WHEN @SortOrder = N'forward_fetches' THEN sz.total_forwarded_fetch_count 
-							WHEN @SortOrder = N'fetches' THEN sz.total_forwarded_fetch_count 
-							ELSE NULL END
-						ELSE 1 END
-						ASC,
+			ORDER BY    /* Shout out to DHutmacher */
+						/*DESC*/
+						CASE WHEN @SortOrder = N'rows' AND @SortDirection = N'desc' THEN sz.total_rows ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'reserved_mb' AND @SortDirection = N'desc' THEN sz.total_reserved_MB ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'size' AND @SortDirection = N'desc' THEN sz.total_reserved_MB ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'reserved_lob_mb' AND @SortDirection = N'desc' THEN sz.total_reserved_LOB_MB ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'lob' AND @SortDirection = N'desc' THEN sz.total_reserved_LOB_MB ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'total_row_lock_wait_in_ms' AND @SortDirection = N'desc' THEN COALESCE(sz.total_row_lock_wait_in_ms,0) ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'total_page_lock_wait_in_ms' AND @SortDirection = N'desc' THEN COALESCE(sz.total_page_lock_wait_in_ms,0) ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'lock_time' AND @SortDirection = N'desc' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0)) ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'total_reads' AND @SortDirection = N'desc' THEN total_reads ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'reads' AND @SortDirection = N'desc' THEN total_reads ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'user_updates' AND @SortDirection = N'desc' THEN user_updates ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'writes' AND @SortDirection = N'desc' THEN user_updates ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'reads_per_write' AND @SortDirection = N'desc' THEN reads_per_write ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'ratio' AND @SortDirection = N'desc' THEN reads_per_write ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'forward_fetches' AND @SortDirection = N'desc' THEN sz.total_forwarded_fetch_count ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'fetches' AND @SortDirection = N'desc' THEN sz.total_forwarded_fetch_count ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'create_date' AND @SortDirection = N'desc' THEN CONVERT(DATETIME, i.create_date) ELSE NULL END DESC,
+						CASE WHEN @SortOrder = N'modify_date' AND @SortDirection = N'desc' THEN CONVERT(DATETIME, i.modify_date) ELSE NULL END DESC,
+						/*ASC*/
+						CASE WHEN @SortOrder = N'rows' AND @SortDirection = N'asc' THEN sz.total_rows ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'reserved_mb' AND @SortDirection = N'asc' THEN sz.total_reserved_MB ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'size' AND @SortDirection = N'asc' THEN sz.total_reserved_MB ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'reserved_lob_mb' AND @SortDirection = N'asc' THEN sz.total_reserved_LOB_MB ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'lob' AND @SortDirection = N'asc' THEN sz.total_reserved_LOB_MB ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'total_row_lock_wait_in_ms' AND @SortDirection = N'asc' THEN COALESCE(sz.total_row_lock_wait_in_ms,0) ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'total_page_lock_wait_in_ms' AND @SortDirection = N'asc' THEN COALESCE(sz.total_page_lock_wait_in_ms,0) ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'lock_time' AND @SortDirection = N'asc' THEN (COALESCE(sz.total_row_lock_wait_in_ms,0) + COALESCE(sz.total_page_lock_wait_in_ms,0)) ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'total_reads' AND @SortDirection = N'asc' THEN total_reads ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'reads' AND @SortDirection = N'asc' THEN total_reads ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'user_updates' AND @SortDirection = N'asc' THEN user_updates ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'writes' AND @SortDirection = N'asc' THEN user_updates ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'reads_per_write' AND @SortDirection = N'asc' THEN reads_per_write ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'ratio' AND @SortDirection = N'asc' THEN reads_per_write ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'forward_fetches' AND @SortDirection = N'asc' THEN sz.total_forwarded_fetch_count ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'fetches' AND @SortDirection = N'asc' THEN sz.total_forwarded_fetch_count ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'create_date' AND @SortDirection = N'asc' THEN CONVERT(DATETIME, i.create_date) ELSE NULL END ASC,
+						CASE WHEN @SortOrder = N'modify_date' AND @SortDirection = N'asc' THEN CONVERT(DATETIME, i.modify_date) ELSE NULL END ASC,
 				i.[database_name], [Schema Name], [Object Name], [Index ID]
 			OPTION (RECOMPILE);
   		END;
